@@ -1,6 +1,6 @@
-//
-// Created by domcekebabas on 3/5/26.
-//
+///
+/// @author Dominykas Nemanis on 3/5/26.
+///
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,9 +10,12 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#define BUFFER_SIZE 2048
+
 int main()
 {
     int sock = socket(AF_INET,SOCK_STREAM,0);
+    if(sock < 0) { perror("socket"); exit(1); }
 
     struct sockaddr_in server;
     server.sin_family = AF_INET;
@@ -23,28 +26,42 @@ int main()
         printf("Connection failed\n");
         exit(1);
     }
-    printf("Connection established\n");
+    printf("Connection established with the server.\n");
 
-    char message[1024];
+    char buffer[BUFFER_SIZE];
+    char input[10];
+
     while(1) {
-        printf("Enter message or 'exit' to quit: ");
-        fgets(message, sizeof(message), stdin);
+        printf("Enter coordinates to shoot (A1 - J10) or 'exit' to quit: ");
+        fgets(input, sizeof(input), stdin);
 
-        if (strncmp(message, "exit", 4) == 0)
+        if (strncmp(buffer, "exit", 4) == 0)
             break;
 
-        send(sock, message, strlen(message),0);
+        input[strcspn(input, "\n")] = 0;//to delete \n from input
 
-        char reply[1024];
-        int bytes_received = recv(sock, reply, sizeof(reply) - 1, 0);
+        char command[20];
+        sprintf(command, "SHOOT|%s", input);
+
+        send(sock, command, strlen(command),0);
+
+        // get response from the server
+        int bytes_received = recv(sock, buffer, sizeof(buffer)-1, 0);
         if (bytes_received <= 0) {
-            printf("Connection closed\n");
+            printf("Connection closed by server\n");
             break;
         }
 
-        reply[bytes_received] = '\0';
-        printf("%s\n", reply);
+        buffer[bytes_received] = '\0';
+        printf("\nServer reply:\n%s\n", buffer);
+
+        // If STATUS|WIN is the answer - game ends.
+        if (strstr(buffer, "STATUS|WIN") != NULL) {
+            printf("You sank all ships! You win!\n");
+            break;
+        }
     }
+
     close(sock);
     return 0;
 }

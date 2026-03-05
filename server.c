@@ -12,35 +12,93 @@
 
 #include "battleship_logic.h"
 
+int waiting_socket = -1;
+GameSession* pending_session = NULL;
+pthread_mutex_t lobby_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t lobby_cond = PTHREAD_COND_INITIALIZER;
+
 void* handle_client(void* arg){
     int client_socket = *(int*)arg;
     free(arg);
 
-    Game game;
-    place_ships(&game);
+    GameSession* session = NULL;
+
+    pthread_mutex_lock(&lobby_mutex);
+
+    if (waiting_socket == -1) {
+        waiting_socket = client_socket;
+        send(client_socket, "STATUS|WAITING\n", 15, 0);
+
+        pthread_cond_wait(&lobby_cond, &lobby_mutex);
+        session = pending_session;
+        pthread_mutex_unlock(&lobby_mutex);
+    } else {
+        session = malloc(sizeof(GameSession));
+        session->socket[0] = waiting_socket;
+        session->socket[1] = client_socket;
+        session->current_turn = 0;
+        session->active = 1;
+
+        place_ships(&session->board[0]);
+        place_ships(&session->board[1]);
+
+        waiting_socket = -1;
+        pending_session = session;                     // forwards session to the first one
+
+        pthread_cond_signal(&lobby_cond);              // "wakesup" player 1
+        pthread_mutex_unlock(&lobby_mutex);
+
+        // Tells both game is started.
+        send(session->socket[0], "STATUS|START|YOUR_TURN\n", 23, 0);
+        send(session->socket[1], "STATUS|START|WAIT\n", 18, 0);
+    }
+
+    int my_index = (client_socket == session->socket[0]) ? 0 : 1;
+    int opponent_index = 1 - my_index;
 
     char buffer[1024];
     while (1) {
         int bytes_received = recv(client_socket, buffer, sizeof(buffer) - 1, 0);
-        if (bytes_received <= 0) break;
+        if (bytes_received <= 0) {
+            send(session->socket[opponent_index], "STATUS|DISCONNECT\n", 18, 0);
+            break;
+        }
 
         buffer[bytes_received] = '\0';
 
         if (strncmp(buffer, "SHOOT|", 6) == 0) {
+
+            pthread_mutex_lock(&lobby_mutex);
+            if (session->current_turn != my_index) {
+                pthread_mutex_unlock(&lobby_mutex);
+                send(client_socket, "ERROR|NOT_YOUR_TURN\n", 20, 0);
+                continue;
+            }
+
             char row = buffer[6];
             int col = atoi(&buffer[7]);
-            const char* result = shoot(&game, row, col);
 
-            char reply[2048];
-            char board_str[SIZE*SIZE+1];
-            board_to_string(&game, board_str);
+            const char* result = shoot(&session->board[opponent_index], row, col);
 
-            sprintf(reply, "RESULT|%s\nBOARD|%s\n", result, board_str);
+            session->current_turn = opponent_index;
+            pthread_mutex_unlock(&lobby_mutex);
 
-            if (game.ships_remaining == 0)
-                strcat(reply, "STATUS|WIN\n");
+            char my_reply[256];
+            char opponent_reply[256];
 
-            send(client_socket, reply, strlen(reply), 0);
+            sprintf(my_reply, "RESULT|%s\n", result);
+            sprintf(opponent_reply, "OPPONENT_SHOT|%c%d|%s\n", row, col, result);
+
+            if (session->board[opponent_index].ships_remaining == 0) {
+                strcat(my_reply, "STATUS|WIN\n");
+                strcat(opponent_reply, "STATUS|LOSE\n");
+            } else {
+                strcat(my_reply, "STATUS|WAIT\n");
+                strcat(opponent_reply, "STATUS|YOUR_TURN\n");
+            }
+
+            send(client_socket, my_reply, strlen(my_reply), 0);
+            send(session->socket[opponent_index], opponent_reply, strlen(opponent_reply), 0);
         }
     }
 

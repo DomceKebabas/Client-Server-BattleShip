@@ -12,6 +12,13 @@ typedef struct {
     int ships_remaining;
 } Game;
 
+typedef struct {
+    int socket[2];
+    Game board[2];
+    int current_turn;
+    int active;
+} GameSession;
+
 void place_ships(Game* game);
 const char* shoot(Game* game, char row, int col);
 void board_to_string(Game* game, char* out);

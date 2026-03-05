@@ -35,7 +35,7 @@ int main()
         printf("Enter coordinates to shoot (A1 - J10) or 'exit' to quit: ");
         fgets(input, sizeof(input), stdin);
 
-        if (strncmp(buffer, "exit", 4) == 0)
+        if (strncmp(input, "exit", 4) == 0)
             break;
 
         input[strcspn(input, "\n")] = 0;//to delete \n from input

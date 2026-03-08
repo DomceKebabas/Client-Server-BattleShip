@@ -19,6 +19,8 @@ typedef struct {
     Game board[2];
     int current_turn;
     int active;
+    int players_done;
+    pthread_mutex_t mutex;
 } GameSession;
 
 void place_ships(Game* game)

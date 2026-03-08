@@ -38,6 +38,8 @@ void* handle_client(void* arg){
         session->socket[1] = client_socket;
         session->current_turn = 0;
         session->active = 1;
+        session->players_done = 0;
+        pthread_mutex_init(&session->mutex, NULL);
 
         place_ships(&session->board[0]);
         place_ships(&session->board[1]);
@@ -103,6 +105,17 @@ void* handle_client(void* arg){
     }
 
     close(client_socket);
+
+    pthread_mutex_lock(&session->mutex);
+    session->players_done++;
+    int done = session->players_done;
+    pthread_mutex_unlock(&session->mutex);
+
+    if (done == 2) {
+        pthread_mutex_destroy(&session->mutex);
+        free(session);
+    }
+
     return NULL;
 }
 

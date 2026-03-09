@@ -6,25 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "battleship_logic.h"
 
-#define SIZE 10
-
-typedef struct {
-    char board[SIZE][SIZE];
-    int ships_remaining;
-} Game;
-
-typedef struct {
-    int socket[2];
-    Game board[2];
-    int current_turn;
-    int active;
-    int players_done;
-    pthread_mutex_t mutex;
-} GameSession;
-
-void place_ships(Game* game)
+void place_ships(Game* game, unsigned int seed)
 {
+    srand(seed);
+
     for (int i = 0; i < SIZE; i++)
         for (int j = 0; j < SIZE; j++)
             game->board[i][j] = 'O';
@@ -32,8 +19,6 @@ void place_ships(Game* game)
     int ship_sizes[] = {4, 3, 3, 2, 2};
     int num_ships = sizeof(ship_sizes)/sizeof(ship_sizes[0]);
     game->ships_remaining = 0;
-
-    srand(time(NULL));
 
     for (int s = 0; s < num_ships; s++) {
         int placed = 0;
@@ -46,7 +31,7 @@ void place_ships(Game* game)
             for (int i = 0; i < ship_sizes[s]; i++) {
                 int r = row + (dir==1 ? i : 0);
                 int c = col + (dir==0 ? i : 0);
-                if (r >= SIZE || c >= SIZE || game->board[r][c] == 'S') {
+                if (r >= SIZE || c >= SIZE || game->board[r][c] != 'O') {
                     fit = 0;
                     break;
                 }
@@ -56,7 +41,7 @@ void place_ships(Game* game)
                 for (int i = 0; i < ship_sizes[s]; i++) {
                     int r = row + (dir==1 ? i : 0);
                     int c = col + (dir==0 ? i : 0);
-                    game->board[r][c] = 'S';
+                    game->board[r][c] = '1' + s;
                     game->ships_remaining++;
                 }
                 placed = 1;
@@ -69,16 +54,28 @@ const char* shoot(Game* game, char row, int col)
 {
     int r = row - 'A';
     int c = col - 1;
-    if (r<0 || r>=SIZE || c<0 || c>=SIZE)
+    if (r < 0 || r >= SIZE || c < 0 || c >= SIZE)
         return "MISS";
 
-    if (game->board[r][c] == 'S') {
+    char cell = game->board[r][c];
+
+    if (cell >= '1' && cell <= '9') {
         game->board[r][c] = 'H';
         game->ships_remaining--;
-        if (game->ships_remaining == 0)
+
+        // Check if the ship is sunk.
+        int sunk = 1;
+        for (int i = 0; i < SIZE; i++)
+            for (int j = 0; j < SIZE; j++)
+                if (game->board[i][j] == cell) { sunk = 0; }
+
+        if (sunk) {
+            if (game->ships_remaining == 0)
+                return "SUNK_ALL";
             return "SUNK";
+        }
         return "HIT";
-    } else if (game->board[r][c] == 'O') {
+    } else if (cell == 'O') {
         game->board[r][c] = 'M';
         return "MISS";
     }

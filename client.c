@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <ctype.h>
 
 #define BUFFER_SIZE 2048
 
@@ -62,15 +63,32 @@ int main() {
 
     char input[10];
     while (1) {
+        if (game_over) break;
+
         printf("Enter coordinates (A1-J10): ");
         fgets(input, sizeof(input), stdin);
-        input[strcspn(input, "\n")] = 0;
 
-        if (game_over) break;
+        // If input was too long, newline wont be in buffer
+        if (strcspn(input, "\n") == sizeof(input) - 1) {
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+        }
+
+        input[strcspn(input, "\n")] = '\0';
+
         if (strncmp(input, "exit", 4) == 0) break;
+        if (game_over) break;
+
+        char row = toupper((unsigned char)input[0]);
+        int  col  = atoi(input + 1);
+
+        if (row < 'A' || row > 'J' || col < 1 || col > 10) {
+            printf("Invalid input. Use A-J and 1-10 (e.g. B7 or J10).\n");
+            continue;
+        }
 
         char command[20];
-        sprintf(command, "SHOOT|%s\n", input);
+        sprintf(command, "SHOOT|%c%d\n", row, col);
         send(sock, command, strlen(command), 0);
     }
 

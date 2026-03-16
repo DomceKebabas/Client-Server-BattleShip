@@ -10,11 +10,12 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <time.h>
+#include <ctype.h>
 
 #include "battleship_logic.h"
 
-void* handle_client(void* arg){
-    int client_socket = *(int*)arg; //taking the socket number
+void* handle_client(void* arg) {
+    int client_socket = *(int*)arg;
     free(arg);
 
     Game board;
@@ -31,23 +32,31 @@ void* handle_client(void* arg){
         }
         buffer[bytes_received] = '\0';
 
-        if (strncmp(buffer, "SHOOT|", 6) == 0) {
-            char row = buffer[6];
-            int col = atoi(&buffer[7]);
-
-            const char* result = shoot(&board, row, col);
-
-            char reply[256];
-
-            if (strcmp(result, "SUNK_ALL") == 0) {
-                sprintf(reply, "RESULT|SUNK\nSTATUS|WIN\n");
-                send(client_socket, reply, strlen(reply), 0);
-                break;
-            }
-
-            sprintf(reply, "RESULT|%s\nSTATUS|YOUR_TURN\n", result);
-            send(client_socket, reply, strlen(reply), 0);
+        if (strncmp(buffer, "SHOOT|", 6) != 0) {
+            send(client_socket, "ERROR|UNKNOWN_COMMAND\n", 22, 0);
+            continue;
         }
+
+        char row = toupper((unsigned char)buffer[6]);
+        int  col  = atoi(&buffer[7]);
+
+        if (row < 'A' || row > 'J' || col < 1 || col > 10) {
+            send(client_socket, "ERROR|INVALID_COORDINATES Use A-J and 1-10 (e.g. B7)\n", 53, 0);
+            continue;
+        }
+
+        const char* result = shoot(&board, row, col);
+
+        char reply[256];
+
+        if (strcmp(result, "SUNK_ALL") == 0) {
+            sprintf(reply, "RESULT|SUNK\nSTATUS|WIN\n");
+            send(client_socket, reply, strlen(reply), 0);
+            break;
+        }
+
+        sprintf(reply, "RESULT|%s\nSTATUS|YOUR_TURN\n", result);
+        send(client_socket, reply, strlen(reply), 0);
     }
 
     close(client_socket);

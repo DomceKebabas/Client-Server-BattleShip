@@ -55,7 +55,7 @@ int main() {
     }
     printf("Connected to server.\n");
 
-    // on thread for receiving messages and one fo
+    // on thread for receiving messages and one for waiting user inp
     pthread_t tid;
     pthread_create(&tid, NULL, receive_thread, &sock);
     pthread_detach(tid);

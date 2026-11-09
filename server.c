@@ -50,12 +50,12 @@ void* handle_client(void* arg) {
         char reply[256];
 
         if (strcmp(result, "SUNK_ALL") == 0) {
-            sprintf(reply, "RESULT|SUNK\nSTATUS|WIN\n");
+            snprintf(reply, sizeof(reply), "RESULT|SUNK\nSHOTS|%d\nSTATUS|WIN\n", board.shots);
             send(client_socket, reply, strlen(reply), 0);
             break;
         }
 
-        sprintf(reply, "RESULT|%s\nSTATUS|YOUR_TURN\n", result);
+        snprintf(reply, sizeof(reply), "RESULT|%s\nSTATUS|YOUR_TURN\n", result);
         send(client_socket, reply, strlen(reply), 0);
     }
 

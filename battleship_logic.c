@@ -19,6 +19,7 @@ void place_ships(Game* game, unsigned int seed)
     int ship_sizes[] = {4, 3, 3, 2, 2};
     int num_ships = sizeof(ship_sizes)/sizeof(ship_sizes[0]);
     game->ships_remaining = 0;
+    game->shots = 0;
 
     for (int s = 0; s < num_ships; s++) {
         int placed = 0;
@@ -58,6 +59,12 @@ const char* shoot(Game* game, char row, int col)
         return "MISS";
 
     char cell = game->board[r][c];
+
+    // Repeat shots are reported and don't count towards the shot total.
+    if (cell == 'H' || cell == 'M')
+        return "ALREADY_SHOT";
+
+    game->shots++;
 
     if (cell >= '1' && cell <= '9') {
         game->board[r][c] = 'H';

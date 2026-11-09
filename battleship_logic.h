@@ -13,6 +13,7 @@
 typedef struct {
     char board[SIZE][SIZE];
     int ships_remaining;
+    int shots;              // valid, non-repeated shots fired so far
 } Game;
 
 void place_ships(Game* game, unsigned int seed);

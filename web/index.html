@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battleship</title>
+<style>
+  :root {
+    --bg: #0e1620; --panel: #16222f; --line: #263648; --text: #dbe6f1; --dim: #7d90a4;
+    --water: #1b3047; --water-hi: #25435f; --ship: #7f93a8; --hit: #e5534b; --miss: #5d7389; --accent: #3d9bf0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: .5px; }
+  #status { min-height: 24px; font-size: 17px; margin: 6px 0 14px; }
+  #status.good { color: #5ccf8a; } #status.bad { color: var(--hit); } #status.turn { color: var(--accent); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+  button { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+           padding: 8px 14px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #04121f; font-weight: 600; }
+  .boards { display: flex; gap: 28px; flex-wrap: wrap; margin-bottom: 14px; }
+  .board h2 { font-size: 13px; font-weight: 600; color: var(--dim); margin: 0 0 6px; text-transform: uppercase; letter-spacing: 1px; }
+  .grid { display: grid; grid-template-columns: 22px repeat(10, 34px); gap: 2px; }
+  .lbl { color: var(--dim); font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  .cell { height: 34px; background: var(--water); border-radius: 4px; display: flex; align-items: center;
+          justify-content: center; font-size: 18px; user-select: none; }
+  .cell.ship { background: var(--ship); }
+  .cell.hit { background: var(--hit); } .cell.hit::after { content: "✕"; color: #fff; font-size: 16px; }
+  .cell.miss::after { content: "•"; color: var(--miss); font-size: 22px; }
+  .cell.ghost { background: var(--ship); opacity: .5; } .cell.ghost-bad { background: var(--hit); opacity: .4; }
+  .cell.last { outline: 2px solid #f2c94c; }
+  .clickable .cell:not(.hit):not(.miss):hover { background: var(--water-hi); cursor: crosshair; }
+  #log { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; height: 150px;
+         overflow-y: auto; padding: 8px 10px; font-size: 13px; color: var(--dim); }
+  #log div.me { color: var(--text); } #log div.err { color: var(--hit); } #log div.chat { color: #f2c94c; }
+  #chat { display: none; gap: 8px; margin-top: 10px; } #chat.on { display: flex; }
+  #chat input { flex: 1; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+                border-radius: 6px; padding: 8px 10px; font: inherit; }
+  .hint { color: var(--dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>⚓ BATTLESHIP</h1>
+  <div id="status">Connecting…</div>
+
+  <div class="row" id="modeRow">
+    <button class="primary" id="btnAi">Play vs computer</button>
+    <button id="btnPvp">Play online (PvP)</button>
+  </div>
+  <div class="row" id="setupRow" hidden>
+    <button id="btnOrient">Orientation: horizontal (R)</button>
+    <button id="btnRandom">Place randomly</button>
+    <span class="hint" id="setupHint"></span>
+  </div>
+
+  <div class="boards">
+    <div class="board"><h2>Your fleet</h2><div class="grid" id="mine"></div></div>
+    <div class="board"><h2 id="enemyTitle">Enemy waters</h2><div class="grid" id="theirs"></div></div>
+  </div>
+
+  <div id="log"></div>
+  <form id="chat"><input id="chatInput" maxlength="150" placeholder="Message your opponent…" autocomplete="off"><button>Send</button></form>
+</main>
+
+<script>
+const ROWS = "ABCDEFGHIJ";
+const $ = id => document.getElementById(id);
+const state = { id: null, phase: "connecting", myTurn: false, pvp: false, vertical: false,
+                next: null, mine: ".".repeat(100), theirs: ".".repeat(100), lastEnemy: null, lastMine: null,
+                revealed: false, hover: null };
+
+// ----------------------------------------------------------------- UI helpers
+function setStatus(text, cls) { const s = $("status"); s.textContent = text; s.className = cls || ""; }
+function log(text, cls) {
+  const d = document.createElement("div"); d.textContent = text; if (cls) d.className = cls;
+  const el = $("log"); el.appendChild(d); el.scrollTop = el.scrollHeight;
+}
+function send(line) {
+  return fetch("/send?id=" + state.id, { method: "POST", body: line }).catch(() => log("Connection lost", "err"));
+}
+
+function buildGrid(el, name) {
+  el.innerHTML = "<div></div>";
+  for (let c = 1; c <= 10; c++) el.insertAdjacentHTML("beforeend", `<div class="lbl">${c}</div>`);
+  for (let r = 0; r < 10; r++) {
+    el.insertAdjacentHTML("beforeend", `<div class="lbl">${ROWS[r]}</div>`);
+    for (let c = 0; c < 10; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell"; cell.dataset.r = r; cell.dataset.c = c;
+      el.appendChild(cell);
+    }
+  }
+  el.addEventListener("click", e => onCell(name, e.target));
+  el.addEventListener("mouseover", e => { if (name === "mine" && e.target.dataset.r) { state.hover = [+e.target.dataset.r, +e.target.dataset.c]; render(); } });
+  el.addEventListener("mouseleave", () => { state.hover = null; render(); });
+}
+
+function render() {
+  paint($("mine"), state.mine, state.lastEnemy, true);
+  paint($("theirs"), state.theirs, state.lastMine, state.revealed);
+  $("theirs").parentElement.classList.toggle("clickable", state.phase === "playing" && state.myTurn);
+  $("mine").parentElement.classList.toggle("clickable", state.phase === "setup");
+  $("modeRow").hidden = !(state.phase === "lobby" || state.phase === "over");
+  $("setupRow").hidden = state.phase !== "setup";
+  $("chat").classList.toggle("on", state.pvp && state.phase !== "lobby" && state.phase !== "connecting");
+  $("btnOrient").textContent = "Orientation: " + (state.vertical ? "vertical" : "horizontal") + " (R)";
+  $("enemyTitle").textContent = state.revealed ? "Enemy fleet (revealed)" : "Enemy waters";
+  if (state.phase === "setup" && state.next)
+    $("setupHint").textContent = `Click your grid to place the ${state.next.name} (${state.next.size} cells).`;
+
+  // placement preview
+  if (state.phase === "setup" && state.hover && state.next) {
+    const [r, c] = state.hover, cells = $("mine").querySelectorAll(".cell");
+    let ok = true;
+    for (let i = 0; i < state.next.size; i++) {
+      const rr = r + (state.vertical ? i : 0), cc = c + (state.vertical ? 0 : i);
+      if (rr > 9 || cc > 9 || state.mine[rr * 10 + cc] === "S") ok = false;
+    }
+    for (let i = 0; i < state.next.size; i++) {
+      const rr = r + (state.vertical ? i : 0), cc = c + (state.vertical ? 0 : i);
+      if (rr < 10 && cc < 10) cells[rr * 10 + cc].classList.add(ok ? "ghost" : "ghost-bad");
+    }
+  }
+}
+
+function paint(el, cells, last, showShips) {
+  const nodes = el.querySelectorAll(".cell");
+  for (let i = 0; i < 100; i++) {
+    const ch = cells[i];
+    let cls = "cell";
+    if (ch === "S" && showShips) cls += " ship"; else if (ch === "X") cls += " hit"; else if (ch === "o") cls += " miss";
+    if (last === i) cls += " last";
+    nodes[i].className = cls;
+  }
+}
+
+function onCell(which, node) {
+  if (node.dataset.r === undefined) return;
+  const r = +node.dataset.r, c = +node.dataset.c, coord = ROWS[r] + (c + 1);
+  if (which === "mine" && state.phase === "setup") send(`PLACE|${coord}|${state.vertical ? "V" : "H"}`);
+  if (which === "theirs" && state.phase === "playing" && state.myTurn) {
+    if ("Xo".includes(state.theirs[r * 10 + c])) return;
+    state.pendingShot = r * 10 + c;
+    send(`SHOOT|${coord}`);
+  }
+}
+
+// ------------------------------------------------------------- protocol
+const ERRORS = {
+  NOT_YOUR_TURN: "It is not your turn.", INVALID_PLACEMENT: "Ship doesn't fit there (off the board or overlapping).",
+  NOT_IN_SETUP: "You're not placing ships right now.", IN_GAME: "You're already in a game.",
+  SERVER_FULL: "Server is full, try again later.", IDLE_TIMEOUT: "Disconnected for being idle.",
+};
+
+function handle(line) {
+  const i = line.indexOf("|");
+  const key = i < 0 ? line : line.slice(0, i), val = i < 0 ? "" : line.slice(i + 1);
+  switch (key) {
+    case "MATCH": state.pvp = val === "PVP"; state.revealed = false; state.theirs = ".".repeat(100);
+      state.lastEnemy = state.lastMine = null; $("log").innerHTML = ""; break;
+    case "YOURBOARD": state.mine = val; break;
+    case "TRACKING": state.theirs = val; if (state.pendingShot !== undefined) { state.lastMine = state.pendingShot; state.pendingShot = undefined; } break;
+    case "REVEAL": state.theirs = val; state.revealed = true; break;
+    case "NEXT_SHIP": { const [name, size] = val.split("|"); state.next = { name, size: +size }; break; }
+    case "PLACED": log(`${val} placed.`, "me"); break;
+    case "RESULT": log(`You fired: ${val}`, "me"); break;
+    case "SUNK_SHIP": log(`You sank their ${val}!`, "me"); break;
+    case "OPPONENT_SHOT": { const [coord, res] = val.split("|"); log(`Opponent fired at ${coord}: ${res}`);
+      state.lastEnemy = ROWS.indexOf(coord[0]) * 10 + (+coord.slice(1) - 1); break; }
+    case "OPPONENT_SUNK": log(`They sank your ${val}!`); break;
+    case "CHAT": log("Opponent: " + val, "chat"); break;
+    case "ERROR": log(ERRORS[val] || ("Error: " + val), "err"); state.pendingShot = undefined; break;
+    case "STATUS": status(val); break;
+  }
+  render();
+}
+
+function status(val) {
+  switch (val) {
+    case "CHOOSE_MODE": if (state.phase !== "over") { state.phase = "lobby"; setStatus("Choose a game mode"); } break;   // after a game keep the result banner
+    case "WAITING_FOR_OPPONENT": state.phase = "waiting"; setStatus("Waiting for an opponent to join…"); break;
+    case "PLACE_SHIPS": state.phase = "setup"; setStatus("Place your fleet", "turn"); break;
+    case "WAITING_FOR_OPPONENT_SETUP": state.phase = "waitsetup"; setStatus("Waiting for the opponent to place their fleet…"); break;
+    case "YOUR_TURN": state.phase = "playing"; state.myTurn = true; setStatus("Your turn — click a cell in enemy waters", "turn"); break;
+    case "OPPONENT_TURN": state.phase = "playing"; state.myTurn = false; setStatus("Opponent's turn…"); break;
+    case "OPPONENT_LEFT": log("Your opponent left the game."); break;
+    case "WIN": state.phase = "over"; state.myTurn = false; setStatus("🎉 You win!", "good"); break;
+    case "LOSE": state.phase = "over"; state.myTurn = false; setStatus("You lost.", "bad"); break;
+  }
+}
+
+function connect() {
+  setStatus("Connecting…");
+  const es = new EventSource("/events");
+  es.addEventListener("id", e => { state.id = e.data; });
+  es.onmessage = e => handle(e.data);
+  es.addEventListener("closed", () => { es.close(); setStatus("Disconnected from server", "bad"); state.phase = "connecting"; showReconnect(); });
+  es.onerror = () => { es.close(); setStatus("Cannot reach the game server. Is it running?", "bad"); showReconnect(); };
+}
+function showReconnect() {
+  $("modeRow").hidden = false; $("btnAi").hidden = $("btnPvp").hidden = true;
+  if (!$("btnRe")) { const b = document.createElement("button"); b.id = "btnRe"; b.className = "primary"; b.textContent = "Reconnect";
+    b.onclick = () => location.reload(); $("modeRow").appendChild(b); }
+}
+
+// ----------------------------------------------------------------- wiring
+buildGrid($("mine"), "mine"); buildGrid($("theirs"), "theirs");
+$("btnAi").onclick = () => send("MODE|AI");
+$("btnPvp").onclick = () => send("MODE|PVP");
+$("btnRandom").onclick = () => send("PLACE|RANDOM");
+$("btnOrient").onclick = () => { state.vertical = !state.vertical; render(); };
+document.addEventListener("keydown", e => {
+  if (e.key.toLowerCase() === "r" && e.target.tagName !== "INPUT" && state.phase === "setup") { state.vertical = !state.vertical; render(); }
+});
+$("chat").onsubmit = e => {
+  e.preventDefault(); const t = $("chatInput").value.trim(); if (!t) return;
+  send("CHAT|" + t); log("You: " + t, "chat"); $("chatInput").value = "";
+};
+render(); connect();
+</script>
+</body>
+</html>

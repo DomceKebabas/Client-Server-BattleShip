@@ -1,0 +1,21 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with warnings as errors
+        run: |
+          gcc -Wall -Wextra -Werror -fsanitize=address,undefined -g -o server server.c battleship_logic.c -lpthread
+          gcc -Wall -Wextra -Werror -fsanitize=address,undefined -g -o client client.c battleship_logic.c -lpthread
+          gcc -Wall -Wextra -Werror -fsanitize=address,undefined -g -o test_logic tests/test_logic.c battleship_logic.c
+      - name: Unit tests
+        run: ./test_logic
+      - name: Protocol tests
+        run: python3 tests/test_protocol.py ./server
+      - name: Thread sanitizer build of the server
+        run: |
+          gcc -Wall -Wextra -fsanitize=thread -g -o server_tsan server.c battleship_logic.c -lpthread
+          python3 tests/test_protocol.py ./server_tsan

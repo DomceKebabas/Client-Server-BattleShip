@@ -1,0 +1,10 @@
+server
+client
+test_logic
+*.exe
+*.o
+dist/
+build/
+cmake-build-*/
+.idea/
+__pycache__/
